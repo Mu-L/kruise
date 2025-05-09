@@ -25,13 +25,6 @@ import (
 	"strings"
 
 	jsonpatch "github.com/evanphx/json-patch"
-	appsv1alpha1 "github.com/openkruise/kruise/apis/apps/v1alpha1"
-	"github.com/openkruise/kruise/pkg/features"
-	"github.com/openkruise/kruise/pkg/util"
-	utilclient "github.com/openkruise/kruise/pkg/util/client"
-	"github.com/openkruise/kruise/pkg/util/configuration"
-	"github.com/openkruise/kruise/pkg/util/expectations"
-	utilfeature "github.com/openkruise/kruise/pkg/util/feature"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -42,6 +35,14 @@ import (
 	kubecontroller "k8s.io/kubernetes/pkg/controller"
 	"k8s.io/kubernetes/pkg/fieldpath"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	appsv1alpha1 "github.com/openkruise/kruise/apis/apps/v1alpha1"
+	"github.com/openkruise/kruise/pkg/features"
+	"github.com/openkruise/kruise/pkg/util"
+	utilclient "github.com/openkruise/kruise/pkg/util/client"
+	"github.com/openkruise/kruise/pkg/util/configuration"
+	"github.com/openkruise/kruise/pkg/util/expectations"
+	utilfeature "github.com/openkruise/kruise/pkg/util/feature"
 )
 
 const (
@@ -312,6 +313,11 @@ func IsSharePodVolumeMounts(container *appsv1alpha1.SidecarContainer) bool {
 	return container.ShareVolumePolicy.Type == appsv1alpha1.ShareVolumePolicyEnabled
 }
 
+// TODO:
+// If you share volume, the volume path of the business container may conflict with the volume path of the sidecar container,
+// resulting in a failed pod creation.
+// For example, if the user's main container volumeDevice has devicePath /var/log and the sidecar container has volumeMounts path /var/log,
+// the path will conflict and the creation will fail.
 func GetInjectedVolumeMountsAndEnvs(control SidecarControl, sidecarContainer *appsv1alpha1.SidecarContainer, pod *corev1.Pod) ([]corev1.VolumeMount, []corev1.EnvVar) {
 	if !IsSharePodVolumeMounts(sidecarContainer) {
 		return nil, nil
@@ -349,7 +355,36 @@ func GetInjectedVolumeMountsAndEnvs(control SidecarControl, sidecarContainer *ap
 			}
 		}
 	}
+	// TODO: share pod.spec.initContainers[*].volumeMounts
 	return injectedMounts, injectedEnvs
+}
+
+func IsSharePodVolumeDevices(container *appsv1alpha1.SidecarContainer) bool {
+	if container.ShareVolumeDevicePolicy == nil {
+		return false
+	}
+	return container.ShareVolumeDevicePolicy.Type == appsv1alpha1.ShareVolumePolicyEnabled
+}
+
+func GetInjectedVolumeDevices(sidecarContainer *appsv1alpha1.SidecarContainer, pod *corev1.Pod) []corev1.VolumeDevice {
+	if !IsSharePodVolumeDevices(sidecarContainer) {
+		return nil
+	}
+
+	// injected volumeDevices
+	var volumeDevices []corev1.VolumeDevice
+	for _, appContainer := range pod.Spec.Containers {
+		// ignore the injected sidecar container
+		if IsInjectedSidecarContainerInPod(&appContainer) {
+			continue
+		}
+
+		for _, volumeDevice := range appContainer.VolumeDevices {
+			volumeDevices = append(volumeDevices, volumeDevice)
+		}
+	}
+	// TODO: share pod.spec.initContainers[*].volumeDevices
+	return volumeDevices
 }
 
 func GetSidecarTransferEnvs(sidecarContainer *appsv1alpha1.SidecarContainer, pod *corev1.Pod) (injectedEnvs []corev1.EnvVar) {

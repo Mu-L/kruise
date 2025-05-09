@@ -24,14 +24,15 @@ import (
 
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 
-	appsv1alpha1 "github.com/openkruise/kruise/apis/apps/v1alpha1"
-	"github.com/openkruise/kruise/pkg/util"
-	"github.com/openkruise/kruise/pkg/util/configuration"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	appsv1alpha1 "github.com/openkruise/kruise/apis/apps/v1alpha1"
+	"github.com/openkruise/kruise/pkg/util"
+	"github.com/openkruise/kruise/pkg/util/configuration"
 )
 
 func init() {
@@ -1260,6 +1261,133 @@ func TestPodMatchedSidecarSet(t *testing.T) {
 			}
 			if cs.expect != matched {
 				t.Fatalf("expect(%v), but get(%v)", cs.expect, matched)
+			}
+		})
+	}
+}
+
+func TestGetInjectedVolumeDevices(t *testing.T) {
+	cases := []struct {
+		name                string
+		getSidecarContainer func() *appsv1alpha1.SidecarContainer
+		getPod              func() *corev1.Pod
+		expect              []corev1.VolumeDevice
+	}{
+		{
+			name: "ShareVolumeDevicePolicy, disable",
+			getSidecarContainer: func() *appsv1alpha1.SidecarContainer {
+				obj := &appsv1alpha1.SidecarContainer{}
+				return obj
+			},
+			getPod: func() *corev1.Pod {
+				obj := &corev1.Pod{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								VolumeDevices: []corev1.VolumeDevice{
+									{
+										Name:       "vd-1",
+										DevicePath: "/data/volume-1",
+									},
+								},
+							},
+							{
+								VolumeDevices: []corev1.VolumeDevice{
+									{
+										Name:       "vd-2",
+										DevicePath: "/data/volume-2",
+									},
+								},
+							},
+							{
+								VolumeDevices: []corev1.VolumeDevice{
+									{
+										Name:       "vd-3",
+										DevicePath: "/data/volume-3",
+									},
+								},
+								Env: []corev1.EnvVar{
+									{
+										Name:  SidecarEnvKey,
+										Value: "true",
+									},
+								},
+							},
+						},
+					},
+				}
+
+				return obj
+			},
+		},
+		{
+			name: "ShareVolumeDevicePolicy, disable",
+			getSidecarContainer: func() *appsv1alpha1.SidecarContainer {
+				obj := &appsv1alpha1.SidecarContainer{
+					ShareVolumeDevicePolicy: &appsv1alpha1.ShareVolumePolicy{
+						Type: appsv1alpha1.ShareVolumePolicyEnabled,
+					},
+				}
+				return obj
+			},
+			getPod: func() *corev1.Pod {
+				obj := &corev1.Pod{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								VolumeDevices: []corev1.VolumeDevice{
+									{
+										Name:       "vd-1",
+										DevicePath: "/data/volume-1",
+									},
+								},
+							},
+							{
+								VolumeDevices: []corev1.VolumeDevice{
+									{
+										Name:       "vd-2",
+										DevicePath: "/data/volume-2",
+									},
+								},
+							},
+							{
+								VolumeDevices: []corev1.VolumeDevice{
+									{
+										Name:       "vd-3",
+										DevicePath: "/data/volume-3",
+									},
+								},
+								Env: []corev1.EnvVar{
+									{
+										Name:  SidecarEnvKey,
+										Value: "true",
+									},
+								},
+							},
+						},
+					},
+				}
+
+				return obj
+			},
+			expect: []corev1.VolumeDevice{
+				{
+					Name:       "vd-1",
+					DevicePath: "/data/volume-1",
+				},
+				{
+					Name:       "vd-2",
+					DevicePath: "/data/volume-2",
+				},
+			},
+		},
+	}
+
+	for _, cs := range cases {
+		t.Run(cs.name, func(t *testing.T) {
+			vd := GetInjectedVolumeDevices(cs.getSidecarContainer(), cs.getPod())
+			if !reflect.DeepEqual(vd, cs.expect) {
+				t.Fatalf("expect(%v), but get(%v)", cs.expect, vd)
 			}
 		})
 	}
